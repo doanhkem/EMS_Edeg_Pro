@@ -29,6 +29,8 @@ import io.openems.edge.bridge.mqtt.api.BridgeMqtt;
 import io.openems.edge.bridge.mqtt.api.MqttComponent;
 import io.openems.edge.bridge.mqtt.api.QoS;
 import io.openems.edge.bridge.modbus.sunspec.DefaultSunSpecModel.S1;
+import io.openems.edge.bridge.modbus.sunspec.DefaultSunSpecModel.S120;
+import io.openems.edge.bridge.modbus.sunspec.DefaultSunSpecModel.S121;
 import io.openems.edge.bridge.modbus.sunspec.DefaultSunSpecModel.S103;
 import io.openems.edge.bridge.modbus.sunspec.SunSpecPoint;
 import io.openems.edge.common.channel.Channel;
@@ -139,10 +141,12 @@ public class ControllerMqttTelemetryImpl extends AbstractOpenemsComponent
 				firstString(component, "Manufacturer").or(() -> firstSunSpecString(component, S1.MN))
 						.orElse(emptyToNull(this.config.manufacturer())),
 				null);
-		add(data, "VoltRef", firstNumber(component, 0.001, "NominalGridVoltage").orElse((double) this.config.voltRef()),
+		add(data, "VoltRef", firstNumber(component, 0.001, "NominalGridVoltage")
+				.or(() -> firstSunSpecNumber(component, 1.0, S121.V_REF)).orElse((double) this.config.voltRef()),
 				"V");
 
 		var maxWatts = firstNumber(component, 1.0, "RatedPower", "MaxActivePower", "MaxApparentPower")
+				.or(() -> firstSunSpecNumber(component, 1.0, S121.W_MAX, S120.W_RTG))
 				.orElse((double) this.config.nameplateWatts());
 		add(data, "WattsMax", maxWatts == 0 ? null : maxWatts, "W");
 		add(data, "nameplateWatts", maxWatts == 0 ? null : maxWatts, "W");

@@ -35,6 +35,7 @@ import io.openems.edge.common.modbusslave.ModbusSlaveTable;
 import io.openems.edge.common.taskmanager.Priority;
 import io.openems.edge.meter.api.ElectricityMeter;
 import io.openems.edge.pvinverter.api.ManagedSymmetricPvInverter;
+import io.openems.edge.sma.ess.stpxx3se.batteryinverter.S160SunSpecModel;
 
 @Designate(ocd = Config.class, factory = true)
 @Component(//
@@ -59,6 +60,7 @@ public class PvInverterSmaSunnyTripowerImpl extends AbstractSunSpecPvInverter
 			.put(DefaultSunSpecModel.S_121, Priority.LOW) // from 40265
 			.put(DefaultSunSpecModel.S_122, Priority.LOW) // from 40297
 			.put(DefaultSunSpecModel.S_123, Priority.LOW) // from 40343 before 2023, from 40070 since 2023
+			.put(S160SunSpecModel.S_160, Priority.LOW) // MPPT extension; from 41305 on SMA CORE2 STP 110-60
 			// since 2023
 			.put(DefaultSunSpecModel.S_701, Priority.HIGH) // from 40096
 			.put(DefaultSunSpecModel.S_702, Priority.LOW) // from 40251
