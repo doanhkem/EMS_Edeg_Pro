@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -57,6 +58,47 @@ public class SendChannelValuesWorker {
 	private static final int SEND_VALUES_OF_ALL_CHANNELS_AFTER_SECONDS = 300; /* 5 minutes */
 	private static final long SEND_VALUES_OF_ALL_CHANNELS_AFTER_MILLIS = SEND_VALUES_OF_ALL_CHANNELS_AFTER_SECONDS
 			* 1_000L;
+	private static final Set<String> INVERTER_CHANNELS = Set.of(//
+			"State", "ModbusCommunicationFailed", //
+			"CurrentL1", "CurrentL2", "CurrentL3", //
+			"VoltageL1", "VoltageL2", "VoltageL3", //
+			"VoltageL1L2", "VoltageL2L3", "VoltageL3L1", //
+			"ActivePower", "Frequency", "ReactivePower", "PowerFactor", //
+			"ActiveProductionEnergy", "TmpCab", "OperatingStatus", //
+			"PV1Voltage", "PV2Voltage", "PV3Voltage", "PV4Voltage", "PV5Voltage", //
+			"PV6Voltage", "PV7Voltage", "PV8Voltage", "PV9Voltage", "PV10Voltage", //
+			"PV11Voltage", "PV12Voltage", "PV13Voltage", "PV14Voltage", "PV15Voltage", //
+			"PV16Voltage", "PV17Voltage", "PV18Voltage", "PV19Voltage", "PV20Voltage", //
+			"PV1Current", "PV2Current", "PV3Current", "PV4Current", "PV5Current", //
+			"PV6Current", "PV7Current", "PV8Current", "PV9Current", "PV10Current", //
+			"PV11Current", "PV12Current", "PV13Current", "PV14Current", "PV15Current", //
+			"PV16Current", "PV17Current", "PV18Current", "PV19Current", "PV20Current");
+	private static final Set<String> METER_CHANNELS = Set.of(//
+			"State", "ModbusCommunicationFailed", //
+			"VoltageL1", "VoltageL2", "VoltageL3", //
+			"VoltageL1L2", "VoltageL2L3", "VoltageL3L1", //
+			"CurrentL1", "CurrentL2", "CurrentL3", //
+			"ActivePower", "Frequency", "ReactivePower", "PowerFactor", //
+			"ActiveProductionEnergy", "ActiveConsumptionEnergy");
+	private static final Set<String> ESS_CHANNELS = Set.of(//
+			"State", "Soc", "Capacity", "GridMode", //
+			"ActivePower", "ReactivePower", "MaxApparentPower", //
+			"ActiveChargeEnergy", "ActiveDischargeEnergy", //
+			"MinCellVoltage", "MaxCellVoltage", "MinCellTemperature", "MaxCellTemperature");
+	private static final Set<String> BATTERY_CHANNELS = Set.of(//
+			"State", "Soc", "Capacity", "Voltage", "Current", //
+			"ChargeMaxCurrent", "DischargeMaxCurrent", //
+			"MinCellVoltage", "MaxCellVoltage", "MinCellTemperature", "MaxCellTemperature");
+	private static final Set<String> BATTERY_INVERTER_CHANNELS = Set.of(//
+			"State", "ActivePower", "ReactivePower", "MaxApparentPower", //
+			"Voltage", "Current", "DcVoltage", "DcCurrent", "DcPower");
+	private static final Set<String> SUM_CHANNELS = Set.of(//
+			"State", //
+			"ProductionActivePower", "ProductionActiveEnergy", //
+			"ConsumptionActivePower", "ConsumptionActiveEnergy", //
+			"GridActivePower", "GridBuyActiveEnergy", "GridSellActiveEnergy", //
+			"EssActivePower", "EssSoc", "EssCapacity", //
+			"EssActiveChargeEnergy", "EssActiveDischargeEnergy");
 
 	private final Logger log = LoggerFactory.getLogger(SendChannelValuesWorker.class);
 
@@ -128,29 +170,55 @@ public class SendChannelValuesWorker {
 	 */
 	private ImmutableMap<String, JsonElement> collectData(List<OpenemsComponent> enabledComponents) {
 		try {
-			return enabledComponents.parallelStream() //
-					.flatMap(component -> component.channels().parallelStream()) //
-					.filter(channel -> // Ignore WRITE_ONLY Channels
-					channel.channelDoc().getAccessMode() != AccessMode.WRITE_ONLY //
-							// Ignore Low-Priority Channels
-							&& channel.channelDoc().getRemotePersistencePriority()
-									.isAtLeast(this.parent.config.persistencePriority()))
-					.collect(//
-							ImmutableMap.toImmutableMap(//
-									c -> c.address().toString(), //
-									c -> c.value().asJson(), //
-									// simple/stupid merge function to avoid
-									// 'java.lang.IllegalArgumentException Duplicate Key'
-									(t, u) -> {
-										this.parent.logWarn(this.log, "Duplicate Key [" + t.toString() + "]");
-										return t;
-									}));
+			final var result = ImmutableMap.<String, JsonElement>builder();
+			for (var component : enabledComponents) {
+				final var channels = getDeviceChannels(component.id());
+				if (channels == null) {
+					continue;
+				}
+				for (var channelId : channels) {
+					result.put(component.id() + "/" + channelId, getChannelValue(component, channelId));
+				}
+			}
+			return result.build();
 		} catch (Exception e) {
 			// ConcurrentModificationException can happen if Channels are dynamically added
 			// or removed
-			this.parent.logWarn(this.log, "Unable to collect date: " + e.getMessage());
+			this.parent.logWarn(this.log, "Unable to collect data: " + e.getMessage());
 			return ImmutableMap.of();
 		}
+	}
+
+	protected static Set<String> getDeviceChannels(String componentId) {
+		final var id = componentId.toLowerCase();
+		if (id.equals("_sum")) {
+			return SUM_CHANNELS;
+		}
+		if (id.startsWith("pvinverter")) {
+			return INVERTER_CHANNELS;
+		}
+		if (id.startsWith("meter")) {
+			return METER_CHANNELS;
+		}
+		if (id.startsWith("ess")) {
+			return ESS_CHANNELS;
+		}
+		if (id.startsWith("batteryinverter")) {
+			return BATTERY_INVERTER_CHANNELS;
+		}
+		if (id.startsWith("battery")) {
+			return BATTERY_CHANNELS;
+		}
+		return null;
+	}
+
+	@SuppressWarnings("deprecation")
+	protected static JsonElement getChannelValue(OpenemsComponent component, String channelId) {
+		final var channel = component._channel(channelId);
+		if (channel == null || channel.channelDoc().getAccessMode() == AccessMode.WRITE_ONLY) {
+			return JsonNull.INSTANCE;
+		}
+		return channel.value().asJson();
 	}
 
 	private TreeBasedTable<Long, String, JsonElement> collectAggregatedData(ZonedDateTime now,
@@ -176,6 +244,9 @@ public class SendChannelValuesWorker {
 				.flatMap(component -> component.channels().stream()) //
 				.filter(channel -> // Ignore WRITE_ONLY Channels
 				channel.channelDoc().getAccessMode() != AccessMode.WRITE_ONLY //
+						// Send only the configured device telemetry schema
+						&& Optional.ofNullable(getDeviceChannels(channel.address().getComponentId()))
+								.map(channels -> channels.contains(channel.address().getChannelId())).orElse(false) //
 						// Ignore Low-Priority Channels
 						&& channel.channelDoc().getRemotePersistencePriority()
 								.isAtLeast(this.parent.config.aggregationPriority()))
@@ -352,8 +423,6 @@ public class SendChannelValuesWorker {
 				this.parent.parent.logInfo(this.parent.log, "Sending five-minute snapshot at ["
 						+ Instant.ofEpochMilli(bucketStart) + "] with [" + this.allValues.size() + " values]");
 			}
-
-			this.parent.parent.logInfo(this.parent.log, "BACKEND_PAYLOAD=" + message.getParams());
 
 			if (this.parent.parent.websocket.sendMessage(message)) {
 				this.parent.lastSendValuesOfAllChannelsBucketStart = bucketStart;

@@ -1,6 +1,7 @@
 package io.openems.edge.controller.api.backend;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.time.Instant;
@@ -20,6 +21,19 @@ import io.openems.edge.common.component.OpenemsComponent;
 import io.openems.edge.controller.api.backend.SendChannelValuesWorkerTest.DummyComponent.DummyEnum;
 
 public class SendChannelValuesWorkerTest {
+
+	@Test
+	public void testDeviceTelemetrySchema() {
+		assertTrue(SendChannelValuesWorker.getDeviceChannels("pvInverter0").contains("ActivePower"));
+		assertTrue(SendChannelValuesWorker.getDeviceChannels("pvInverter0").contains("PV20Current"));
+		assertTrue(SendChannelValuesWorker.getDeviceChannels("meter0").contains("ActiveConsumptionEnergy"));
+		assertTrue(SendChannelValuesWorker.getDeviceChannels("ess0").contains("Soc"));
+		assertTrue(SendChannelValuesWorker.getDeviceChannels("_sum").contains("ProductionActivePower"));
+		assertNull(SendChannelValuesWorker.getDeviceChannels("ctrlBackend0"));
+
+		final var component = new DummyComponent("pvInverter0");
+		assertTrue(SendChannelValuesWorker.getChannelValue(component, "ActivePower").isJsonNull());
+	}
 
 	@Test
 	public void testFiveMinuteBucketStart() {
