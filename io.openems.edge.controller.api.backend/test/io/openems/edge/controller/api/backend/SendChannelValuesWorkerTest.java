@@ -3,6 +3,7 @@ package io.openems.edge.controller.api.backend;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 import org.junit.Test;
@@ -19,6 +20,18 @@ import io.openems.edge.common.component.OpenemsComponent;
 import io.openems.edge.controller.api.backend.SendChannelValuesWorkerTest.DummyComponent.DummyEnum;
 
 public class SendChannelValuesWorkerTest {
+
+	@Test
+	public void testFiveMinuteBucketStart() {
+		assertEquals(Long.MIN_VALUE,
+				SendChannelValuesWorker.getFiveMinuteBucketStart(Instant.parse("2026-06-08T07:29:17Z")));
+		assertEquals(Instant.parse("2026-06-08T07:30:00Z").toEpochMilli(),
+				SendChannelValuesWorker.getFiveMinuteBucketStart(Instant.parse("2026-06-08T07:30:05Z")));
+		assertEquals(Instant.parse("2026-06-08T07:30:00Z").toEpochMilli(),
+				SendChannelValuesWorker.getFiveMinuteBucketStart(Instant.parse("2026-06-08T07:30:59Z")));
+		assertEquals(Long.MIN_VALUE,
+				SendChannelValuesWorker.getFiveMinuteBucketStart(Instant.parse("2026-06-08T07:31:00Z")));
+	}
 
 	@Test
 	public void testAggregateNaturalCumulated() {

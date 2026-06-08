@@ -72,10 +72,6 @@ public class SendChannelValuesWorker {
 					.setNameFormat(ControllerApiBackendImpl.COMPONENT_NAME + ":SendAggregatedWorker-%d").build());
 	private final int randomWaitSeconds = new Random().nextInt((int) (AGGREGATION_MINUTES * 60 * 0.9));
 
-	/**
-	 * If true: next 'send' sends all channel values.
-	 */
-	private final AtomicBoolean sendValuesOfAllChannels = new AtomicBoolean(true);
 	private final AtomicBoolean sendValuesOfAllChannelsAggregated = new AtomicBoolean(true);
 
 	private long lastSendValuesOfAllChannelsBucketStart = Long.MIN_VALUE;
@@ -90,7 +86,6 @@ public class SendChannelValuesWorker {
 	 * Triggers sending all Channel values once.
 	 */
 	public synchronized void sendValuesOfAllChannelsOnce() {
-		this.sendValuesOfAllChannels.set(true);
 		this.sendValuesOfAllChannelsAggregated.set(true);
 	}
 
@@ -115,7 +110,6 @@ public class SendChannelValuesWorker {
 		final var allValues = this.collectData(enabledComponents);
 		final var aggregatedValues = this.collectAggregatedData(now, enabledComponents);
 
-		// Add to send Queue
 		this.executor.execute(new SendTask(this, now.toInstant(), allValues));
 		if (aggregatedValues != null && !aggregatedValues.isEmpty()) {
 			aggregatedValues.rowMap().forEach((timestamp, data) -> {
@@ -332,9 +326,6 @@ public class SendChannelValuesWorker {
 		return JsonNull.INSTANCE;
 	}
 
-	/*
-	 * From here things run asynchronously.
-	 */
 	private static class SendTask implements Runnable {
 
 		private final SendChannelValuesWorker parent;
@@ -349,53 +340,35 @@ public class SendChannelValuesWorker {
 
 		@Override
 		public void run() {
-			this.parent.sendValuesOfAllChannels.set(false);
-
-			final var fixedFiveMinuteBucketStart = this.parent.getFixedFiveMinuteBucketStart(this.timestamp);
-			if (fixedFiveMinuteBucketStart == Long.MIN_VALUE) {
+			final var bucketStart = getFiveMinuteBucketStart(this.timestamp);
+			if (bucketStart == Long.MIN_VALUE || bucketStart == this.parent.lastSendValuesOfAllChannelsBucketStart) {
 				return;
 			}
 
-			// Round timestamp to Global Cycle-Time
-			final var cycleTime = this.parent.parent.cycle.getCycleTime();
-			final var timestampMillis = this.timestamp.toEpochMilli() / cycleTime * cycleTime;
+			final var message = new TimestampedDataNotification();
+			message.add(bucketStart, this.allValues);
 
-			// Create JSON-RPC notification
-			var message = new TimestampedDataNotification();
-			message.add(timestampMillis, this.allValues);
-
-			// Debug-Log
 			if (this.parent.parent.config.debugMode()) {
-				this.parent.parent.logInfo(this.parent.log,
-						"Sending [" + this.allValues.size() + " values]: " + this.allValues);
+				this.parent.parent.logInfo(this.parent.log, "Sending five-minute snapshot at ["
+						+ Instant.ofEpochMilli(bucketStart) + "] with [" + this.allValues.size() + " values]");
 			}
 
-			// Try to send
-			var wasSent = this.parent.parent.websocket.sendMessage(message);
-
-			if (wasSent) {
-				// Successfully sent: update information for next runs
-				this.parent.lastSendValuesOfAllChannelsBucketStart = fixedFiveMinuteBucketStart;
+			if (this.parent.parent.websocket.sendMessage(message)) {
+				this.parent.lastSendValuesOfAllChannelsBucketStart = bucketStart;
 			}
-
 		}
-
 	}
 
-	private long getFixedFiveMinuteBucketStart(Instant timestamp) {
+	protected static long getFiveMinuteBucketStart(Instant timestamp) {
 		final var epochMillis = timestamp.toEpochMilli();
 		final var bucketOffset = Math.floorMod(epochMillis, SEND_VALUES_OF_ALL_CHANNELS_AFTER_MILLIS);
-		final var cycleTime = Math.max(this.parent.cycle.getCycleTime(), 1_000);
-		if (bucketOffset >= cycleTime) {
+
+		// Send on the first Core.Cycle within minute 00/05/10/15..., while the
+		// packet timestamp is fixed to the beginning of that five-minute bucket.
+		if (bucketOffset >= 60_000L) {
 			return Long.MIN_VALUE;
 		}
-
-		final var bucketStart = epochMillis - bucketOffset;
-		if (bucketStart == this.lastSendValuesOfAllChannelsBucketStart) {
-			return Long.MIN_VALUE;
-		}
-
-		return bucketStart;
+		return epochMillis - bucketOffset;
 	}
 
 	private static final class SendAggregatedDataTask implements Runnable {
