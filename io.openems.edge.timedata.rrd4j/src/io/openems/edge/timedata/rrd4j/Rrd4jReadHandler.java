@@ -435,12 +435,6 @@ public class Rrd4jReadHandler {
 					}
 				}, (t, u) -> t, TreeMap::new));
 
-		// If no Channel can be read successfully: throw exception
-		if (result.values().stream().allMatch(JsonElement::isJsonNull)) {
-			throw new OpenemsException("Unable to read historic data: None of the requested Channels is available: "
-					+ channels.stream().map(c -> c.toString()).collect(Collectors.joining(", ")));
-		}
-
 		return result;
 	}
 
