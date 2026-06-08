@@ -10,7 +10,9 @@ import java.time.LocalDateTime;
 import org.junit.Test;
 
 import com.google.common.collect.Lists;
+import com.google.gson.JsonPrimitive;
 
+import io.openems.common.channel.Unit;
 import io.openems.common.function.ThrowingFunction;
 import io.openems.common.types.OpenemsType;
 import io.openems.common.types.OptionsEnum;
@@ -33,6 +35,20 @@ public class SendChannelValuesWorkerTest {
 
 		final var component = new DummyComponent("pvInverter0");
 		assertTrue(SendChannelValuesWorker.getChannelValue(component, "ActivePower").isJsonNull());
+	}
+
+	@Test
+	public void testNormalizeDeviceValue() {
+		assertEquals(229.5, SendChannelValuesWorker.normalizeDeviceValue(Unit.MILLIVOLT, new JsonPrimitive(229500))
+				.getAsDouble(), 0);
+		assertEquals(16.7, SendChannelValuesWorker.normalizeDeviceValue(Unit.MILLIAMPERE, new JsonPrimitive(16700))
+				.getAsDouble(), 0);
+		assertEquals(50.14, SendChannelValuesWorker.normalizeDeviceValue(Unit.MILLIHERTZ, new JsonPrimitive(50140))
+				.getAsDouble(), 0);
+		assertEquals(11210, SendChannelValuesWorker.normalizeDeviceValue(Unit.WATT, new JsonPrimitive(11210))
+				.getAsInt());
+		assertEquals(45.2, SendChannelValuesWorker.normalizeDeviceValue(Unit.DEZIDEGREE_CELSIUS,
+				new JsonPrimitive(452)).getAsDouble(), 0);
 	}
 
 	@Test

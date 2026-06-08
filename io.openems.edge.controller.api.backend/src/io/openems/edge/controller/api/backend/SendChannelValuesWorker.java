@@ -33,6 +33,7 @@ import com.google.gson.JsonNull;
 import com.google.gson.JsonPrimitive;
 
 import io.openems.common.channel.AccessMode;
+import io.openems.common.channel.Unit;
 import io.openems.common.jsonrpc.notification.AggregatedDataNotification;
 import io.openems.common.jsonrpc.notification.TimestampedDataNotification;
 import io.openems.common.timedata.DurationUnit;
@@ -218,7 +219,33 @@ public class SendChannelValuesWorker {
 		if (channel == null || channel.channelDoc().getAccessMode() == AccessMode.WRITE_ONLY) {
 			return JsonNull.INSTANCE;
 		}
-		return channel.value().asJson();
+		return normalizeDeviceValue(channel.channelDoc().getUnit(), channel.value().asJson());
+	}
+
+	protected static JsonElement normalizeDeviceValue(Unit unit, JsonElement value) {
+		if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isNumber()) {
+			return value;
+		}
+
+		final var factor = getDeviceValueFactor(unit);
+		if (factor == 1.0) {
+			return value;
+		}
+		return new JsonPrimitive(normalize(value.getAsDouble() * factor));
+	}
+
+	private static double getDeviceValueFactor(Unit unit) {
+		if (unit.baseUnit == null) {
+			return 1.0;
+		}
+		return Math.pow(10, unit.scaleFactor);
+	}
+
+	private static Number normalize(double value) {
+		if (Double.isFinite(value) && Math.rint(value) == value) {
+			return Long.valueOf((long) value);
+		}
+		return Double.valueOf(Math.round(value * 1000.0) / 1000.0);
 	}
 
 	private TreeBasedTable<Long, String, JsonElement> collectAggregatedData(ZonedDateTime now,
@@ -277,7 +304,8 @@ public class SendChannelValuesWorker {
 						if (!sendAllChannels && value.isJsonNull()) {
 							return;
 						}
-						table.put(timestampMillis, channel.address().toString(), value);
+						table.put(timestampMillis, channel.address().toString(),
+								normalizeDeviceValue(channel.channelDoc().getUnit(), value));
 					} catch (IllegalArgumentException e) {
 						// unable to collect data because types are not matching the expected one
 						e.printStackTrace();
