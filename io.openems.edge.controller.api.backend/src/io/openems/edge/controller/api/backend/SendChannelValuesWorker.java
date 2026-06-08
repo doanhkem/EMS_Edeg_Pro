@@ -8,10 +8,8 @@ import java.time.LocalDateTime;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Random;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -50,8 +48,8 @@ import io.openems.edge.common.type.TypeUtils;
  * asynchronous task.
  *
  * <p>
- * The logic tries to send changed values once per Cycle and all values once
- * every {@link #SEND_VALUES_OF_ALL_CHANNELS_AFTER_SECONDS}.
+ * The logic sends one synchronized snapshot of all values on fixed five-minute
+ * buckets.
  */
 public class SendChannelValuesWorker {
 
@@ -81,11 +79,6 @@ public class SendChannelValuesWorker {
 	private final AtomicBoolean sendValuesOfAllChannelsAggregated = new AtomicBoolean(true);
 
 	private long lastSendValuesOfAllChannelsBucketStart = Long.MIN_VALUE;
-
-	/**
-	 * Keeps the values of last successful send.
-	 */
-	private Map<String, JsonElement> lastAllValues = ImmutableMap.of();
 
 	private Instant lastSendAggregatedDataTimestamp;
 
@@ -356,54 +349,26 @@ public class SendChannelValuesWorker {
 
 		@Override
 		public void run() {
-			// Holds the data of the last successful send. If the table is empty, it is also
-			// used as a marker to send all data.
-			final Map<String, JsonElement> lastAllValues;
-			long fixedFiveMinuteBucketStart = Long.MIN_VALUE;
+			this.parent.sendValuesOfAllChannels.set(false);
 
-			if (this.parent.sendValuesOfAllChannels.getAndSet(false)) {
-				// Send values of all Channels once in a while
-				lastAllValues = ImmutableMap.of();
-
-			} else if ((fixedFiveMinuteBucketStart = this.parent.getFixedFiveMinuteBucketStart(this.timestamp))
-					!= Long.MIN_VALUE) {
-				// Send all values on fixed wall-clock buckets, e.g. 00/05/10/15 minutes.
-				lastAllValues = ImmutableMap.of();
-
-			} else {
-				// Actually use the kept 'lastSentValues'
-				// CHECKSTYLE:OFF
-				lastAllValues = this.parent.lastAllValues;
-				// CHECKSTYLE:ON
+			final var fixedFiveMinuteBucketStart = this.parent.getFixedFiveMinuteBucketStart(this.timestamp);
+			if (fixedFiveMinuteBucketStart == Long.MIN_VALUE) {
+				return;
 			}
 
 			// Round timestamp to Global Cycle-Time
 			final var cycleTime = this.parent.parent.cycle.getCycleTime();
-			final var timestamp = fixedFiveMinuteBucketStart != Long.MIN_VALUE //
-					? Instant.ofEpochMilli(fixedFiveMinuteBucketStart) //
-					: this.timestamp;
+			final var timestamp = Instant.ofEpochMilli(fixedFiveMinuteBucketStart);
 			final var timestampMillis = timestamp.toEpochMilli() / cycleTime * cycleTime;
-
-			// Prepare message values
-			var sendValuesMap = new HashMap<String, JsonElement>();
-
-			// Collect Changed values
-			for (var entry : this.allValues.entrySet()) {
-				var channelAddress = entry.getKey();
-				var value = entry.getValue();
-				if (!Objects.equals(value, lastAllValues.get(channelAddress))) {
-					sendValuesMap.put(channelAddress, value);
-				}
-			}
 
 			// Create JSON-RPC notification
 			var message = new TimestampedDataNotification();
-			message.add(timestampMillis, sendValuesMap);
+			message.add(timestampMillis, this.allValues);
 
 			// Debug-Log
 			if (this.parent.parent.config.debugMode()) {
 				this.parent.parent.logInfo(this.parent.log,
-						"Sending [" + sendValuesMap.size() + " values]: " + sendValuesMap);
+						"Sending [" + this.allValues.size() + " values]: " + this.allValues);
 			}
 
 			// Try to send
@@ -411,10 +376,7 @@ public class SendChannelValuesWorker {
 
 			if (wasSent) {
 				// Successfully sent: update information for next runs
-				this.parent.lastAllValues = this.allValues;
-				if (fixedFiveMinuteBucketStart != Long.MIN_VALUE) {
-					this.parent.lastSendValuesOfAllChannelsBucketStart = fixedFiveMinuteBucketStart;
-				}
+				this.parent.lastSendValuesOfAllChannelsBucketStart = fixedFiveMinuteBucketStart;
 			}
 
 		}
