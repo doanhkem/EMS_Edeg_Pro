@@ -353,6 +353,8 @@ public class SendChannelValuesWorker {
 						+ Instant.ofEpochMilli(bucketStart) + "] with [" + this.allValues.size() + " values]");
 			}
 
+			this.parent.parent.logInfo(this.parent.log, "BACKEND_PAYLOAD=" + message.getParams());
+
 			if (this.parent.parent.websocket.sendMessage(message)) {
 				this.parent.lastSendValuesOfAllChannelsBucketStart = bucketStart;
 			}
